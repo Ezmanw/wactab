@@ -8,6 +8,10 @@ pub enum EventKind {
     Move,
     Up,
     Hover,
+    /// Not spatial — sent by the app's optional Undo/Redo buttons. Position/pressure/tilt
+    /// fields are unused and should be zeroed by the sender.
+    Undo,
+    Redo,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +48,8 @@ impl PenEvent {
             1 => EventKind::Move,
             2 => EventKind::Up,
             3 => EventKind::Hover,
+            4 => EventKind::Undo,
+            5 => EventKind::Redo,
             other => bail!("unknown event kind {other}"),
         };
         let buttons = buf[1];

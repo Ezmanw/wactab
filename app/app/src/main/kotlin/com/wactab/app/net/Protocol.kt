@@ -9,6 +9,9 @@ enum class EventKind(val code: Byte) {
     MOVE(1),
     UP(2),
     HOVER(3),
+    /** Not spatial — position/pressure/tilt fields are ignored by the daemon. */
+    UNDO(4),
+    REDO(5),
 }
 
 const val PACKET_LEN = 24
@@ -43,5 +46,10 @@ class PenEvent(
         buf.putFloat(tiltX.coerceIn(-90f, 90f))
         buf.putFloat(tiltY.coerceIn(-90f, 90f))
         return buf.array()
+    }
+
+    companion object {
+        fun undo() = PenEvent(EventKind.UNDO, false, false, 0f, 0f, 0f, 0f, 0f)
+        fun redo() = PenEvent(EventKind.REDO, false, false, 0f, 0f, 0f, 0f, 0f)
     }
 }

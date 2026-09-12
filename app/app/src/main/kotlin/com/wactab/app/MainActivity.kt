@@ -1,5 +1,6 @@
 package com.wactab.app
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,22 +11,30 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.content.Context
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -33,29 +42,106 @@ import com.wactab.app.net.PenServer
 import com.wactab.app.ui.PenSurfaceView
 import kotlinx.coroutines.delay
 
-private val WactabColorScheme = darkColorScheme(
-    primary = Color(0xFF80CBC4),
-    onPrimary = Color(0xFF00201C),
-    primaryContainer = Color(0xFF0F3D38),
-    onPrimaryContainer = Color(0xFFA0F2E4),
-    secondary = Color(0xFFB0CCC7),
-    onSecondary = Color(0xFF162421),
-    background = Color(0xFF121212),
-    onBackground = Color(0xFFE3E3E3),
-    surface = Color(0xFF1C1C1E),
-    onSurface = Color(0xFFE3E3E3),
-    surfaceVariant = Color(0xFF2A2A2C),
-    onSurfaceVariant = Color(0xFFC4C7C6),
-    outline = Color(0xFF8A8F8D),
+private fun onColorFor(bg: Color): Color = if (bg.luminance() > 0.5f) Color.Black else Color.White
+
+private fun mix(a: Color, b: Color, t: Float): Color = Color(
+    red = a.red + (b.red - a.red) * t,
+    green = a.green + (b.green - a.green) * t,
+    blue = a.blue + (b.blue - a.blue) * t,
+    alpha = 1f,
 )
+
+/**
+ * Every color role that a default M3 component might reach for (FilterChip and
+ * FilledTonalButton both default to secondaryContainer, for instance) needs to be derived
+ * from the chosen accent — otherwise stock Material's baseline purple leaks through on
+ * exactly the controls a custom accent is supposed to reach.
+ */
+val dynamicColorAvailable: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+private fun wactabColorScheme(settings: WactabSettings, context: Context): ColorScheme {
+    if (settings.useDynamicColor && dynamicColorAvailable) {
+        val base = if (settings.themeMode == ThemeMode.LIGHT) {
+            dynamicLightColorScheme(context)
+        } else {
+            dynamicDarkColorScheme(context)
+        }
+        return if (settings.themeMode == ThemeMode.DARK && settings.oledMode) {
+            base.copy(background = Color(0xFF000000), surface = Color(0xFF000000))
+        } else {
+            base
+        }
+    }
+
+    val accent = settings.accentColor
+    val onAccent = onColorFor(accent)
+
+    return if (settings.themeMode == ThemeMode.LIGHT) {
+        val surface = Color(0xFFF2F2F2)
+        val container = mix(accent, surface, 0.72f)
+        lightColorScheme(
+            primary = accent,
+            onPrimary = onAccent,
+            primaryContainer = container,
+            onPrimaryContainer = onColorFor(container),
+            secondary = accent,
+            onSecondary = onAccent,
+            secondaryContainer = container,
+            onSecondaryContainer = onColorFor(container),
+            tertiary = accent,
+            onTertiary = onAccent,
+            tertiaryContainer = container,
+            onTertiaryContainer = onColorFor(container),
+            background = Color(0xFFFAFAFA),
+            onBackground = Color(0xFF1B1B1B),
+            surface = surface,
+            onSurface = Color(0xFF1B1B1B),
+            surfaceVariant = Color(0xFFE6E6E6),
+            onSurfaceVariant = Color(0xFF444444),
+            outline = Color(0xFF787878),
+        )
+    } else {
+        val bg = if (settings.oledMode) Color(0xFF000000) else Color(0xFF121212)
+        val surface = if (settings.oledMode) Color(0xFF000000) else Color(0xFF1C1C1E)
+        val container = mix(accent, surface, 0.62f)
+        darkColorScheme(
+            primary = accent,
+            onPrimary = onAccent,
+            primaryContainer = container,
+            onPrimaryContainer = onColorFor(container),
+            secondary = accent,
+            onSecondary = onAccent,
+            secondaryContainer = container,
+            onSecondaryContainer = onColorFor(container),
+            tertiary = accent,
+            onTertiary = onAccent,
+            tertiaryContainer = container,
+            onTertiaryContainer = onColorFor(container),
+            background = bg,
+            onBackground = Color(0xFFE3E3E3),
+            surface = surface,
+            onSurface = Color(0xFFE3E3E3),
+            surfaceVariant = Color(0xFF2A2A2C),
+            onSurfaceVariant = Color(0xFFC4C7C6),
+            outline = Color(0xFF8A8F8D),
+        )
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setImmersive()
         setContent {
-            MaterialTheme(colorScheme = WactabColorScheme) {
-                WactabApp()
+            var settings by remember { mutableStateOf(SettingsStore.load(this)) }
+            MaterialTheme(colorScheme = wactabColorScheme(settings, this)) {
+                WactabApp(
+                    settings = settings,
+                    onSettingsChange = {
+                        settings = it
+                        SettingsStore.save(this, it)
+                    },
+                )
             }
         }
     }
@@ -75,12 +161,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WactabApp() {
+fun WactabApp(settings: WactabSettings, onSettingsChange: (WactabSettings) -> Unit) {
     var port by remember { mutableStateOf(7912) }
     var running by remember { mutableStateOf(false) }
     var connected by remember { mutableStateOf(false) }
     var calibrating by remember { mutableStateOf(false) }
     var barVisible by remember { mutableStateOf(true) }
+    var showSettings by remember { mutableStateOf(false) }
 
     // left, top, right, bottom as fractions of the screen (0f..1f) — full screen by default.
     var rect by remember { mutableStateOf(floatArrayOf(0f, 0f, 1f, 1f)) }
@@ -96,6 +183,8 @@ fun WactabApp() {
             { event -> server.send(event) }
         } else null
     }
+    LaunchedEffect(settings.penOnlyMode) { surfaceView?.penOnlyMode = settings.penOnlyMode }
+    LaunchedEffect(settings.canvasColorHex) { surfaceView?.canvasColor = settings.canvasColor.toArgb() }
     LaunchedEffect(barVisible, calibrating) {
         if (barVisible && !calibrating) {
             delay(4000)
@@ -108,6 +197,8 @@ fun WactabApp() {
             factory = { ctx ->
                 PenSurfaceView(ctx).also {
                     it.activeRect = rect
+                    it.penOnlyMode = settings.penOnlyMode
+                    it.canvasColor = settings.canvasColor.toArgb()
                     surfaceView = it
                 }
             },
@@ -160,6 +251,18 @@ fun WactabApp() {
                         running = true
                     }
                 },
+                onOpenSettings = { showSettings = true },
+                showUndoRedo = settings.showUndoRedo,
+                onUndo = { server.send(com.wactab.app.net.PenEvent.undo()) },
+                onRedo = { server.send(com.wactab.app.net.PenEvent.redo()) },
+            )
+        }
+
+        if (showSettings) {
+            SettingsDialog(
+                settings = settings,
+                onSettingsChange = onSettingsChange,
+                onDismiss = { showSettings = false },
             )
         }
     }
@@ -175,6 +278,10 @@ fun ControlBar(
     calibrating: Boolean,
     onToggleCalibrate: () -> Unit,
     onToggleRunning: () -> Unit,
+    onOpenSettings: () -> Unit,
+    showUndoRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
 ) {
     Surface(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -198,6 +305,14 @@ fun ControlBar(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.weight(1f))
+            if (showUndoRedo) {
+                OutlinedButton(onClick = onUndo, contentPadding = PaddingValues(horizontal = 14.dp)) {
+                    Text("↶ Undo")
+                }
+                OutlinedButton(onClick = onRedo, contentPadding = PaddingValues(horizontal = 14.dp)) {
+                    Text("Redo ↷")
+                }
+            }
             OutlinedTextField(
                 value = port.toString(),
                 onValueChange = { it.toIntOrNull()?.let(onPortChange) },
@@ -212,7 +327,22 @@ fun ControlBar(
             Button(onClick = onToggleRunning) {
                 Text(if (running) "Stop" else "Start")
             }
+            IconlessButton(onClick = onOpenSettings, label = "⚙")
         }
+    }
+}
+
+@Composable
+private fun IconlessButton(onClick: () -> Unit, label: String) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -228,6 +358,178 @@ private fun StatusDot(connected: Boolean, running: Boolean) {
             .size(12.dp)
             .clip(RoundedCornerShape(50))
             .background(color)
+    )
+}
+
+@Composable
+fun SettingsDialog(
+    settings: WactabSettings,
+    onSettingsChange: (WactabSettings) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = { Text("Settings") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                SettingRow(
+                    title = "Pen-only mode",
+                    subtitle = "Ignore finger/palm touches entirely",
+                ) {
+                    Switch(
+                        checked = settings.penOnlyMode,
+                        onCheckedChange = { onSettingsChange(settings.copy(penOnlyMode = it)) },
+                    )
+                }
+
+                SettingRow(
+                    title = "Undo/redo buttons",
+                    subtitle = "Sends Ctrl+Z / Ctrl+Y to the focused PC app",
+                ) {
+                    Switch(
+                        checked = settings.showUndoRedo,
+                        onCheckedChange = { onSettingsChange(settings.copy(showUndoRedo = it)) },
+                    )
+                }
+
+                Column {
+                    Text("Appearance", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = settings.themeMode == ThemeMode.DARK,
+                            onClick = { onSettingsChange(settings.copy(themeMode = ThemeMode.DARK)) },
+                            label = { Text("Dark") },
+                        )
+                        FilterChip(
+                            selected = settings.themeMode == ThemeMode.LIGHT,
+                            onClick = { onSettingsChange(settings.copy(themeMode = ThemeMode.LIGHT, oledMode = false)) },
+                            label = { Text("Light") },
+                        )
+                    }
+                }
+
+                SettingRow(
+                    title = "OLED mode",
+                    subtitle = "True black background (dark mode only)",
+                    enabled = settings.themeMode == ThemeMode.DARK,
+                ) {
+                    Switch(
+                        checked = settings.oledMode && settings.themeMode == ThemeMode.DARK,
+                        enabled = settings.themeMode == ThemeMode.DARK,
+                        onCheckedChange = { onSettingsChange(settings.copy(oledMode = it)) },
+                    )
+                }
+
+                Column {
+                    Text("Accent colour", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    if (dynamicColorAvailable) {
+                        SettingRow(
+                            title = "Use device theme",
+                            subtitle = "Material You — matches your wallpaper",
+                        ) {
+                            Switch(
+                                checked = settings.useDynamicColor,
+                                onCheckedChange = { onSettingsChange(settings.copy(useDynamicColor = it)) },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.alpha(if (settings.useDynamicColor && dynamicColorAvailable) 0.4f else 1f),
+                    ) {
+                        items(Palettes.accents.size) { i ->
+                            ColorSwatch(
+                                color = Palettes.accents[i],
+                                selected = !settings.useDynamicColor && settings.accentIndex == i,
+                                onClick = {
+                                    onSettingsChange(settings.copy(accentIndex = i, useDynamicColor = false))
+                                },
+                            )
+                        }
+                    }
+                }
+
+                Column {
+                    Text("Touch surface colour", style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(Palettes.canvasBackgrounds.size) { hex ->
+                            ColorSwatch(
+                                color = parseHexColor(Palettes.canvasBackgrounds[hex]) ?: Color.Black,
+                                selected = settings.canvasColorHex.equals(Palettes.canvasBackgrounds[hex], ignoreCase = true),
+                                onClick = { onSettingsChange(settings.copy(canvasColorHex = Palettes.canvasBackgrounds[hex])) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    var hexText by remember(settings.canvasColorHex) { mutableStateOf(settings.canvasColorHex) }
+                    var hexError by remember { mutableStateOf(false) }
+                    OutlinedTextField(
+                        value = hexText,
+                        onValueChange = { input ->
+                            val cleaned = input.removePrefix("#").take(6)
+                            hexText = cleaned
+                            val parsed = parseHexColor(cleaned)
+                            hexError = parsed == null
+                            if (parsed != null) onSettingsChange(settings.copy(canvasColorHex = cleaned))
+                        },
+                        label = { Text("Hex") },
+                        leadingIcon = { Text("#", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        isError = hexError,
+                        singleLine = true,
+                        modifier = Modifier.width(160.dp),
+                    )
+                }
+
+                TextButton(onClick = { onSettingsChange(WactabSettings()) }) {
+                    Text("Reset settings to default")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun SettingRow(
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    control: @Composable () -> Unit,
+) {
+    val alpha = if (enabled) 1f else 0.4f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(Modifier.alpha(alpha)) { control() }
+    }
+}
+
+@Composable
+private fun ColorSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(
+                width = if (selected) 3.dp else 1.dp,
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.3f),
+                shape = CircleShape,
+            )
+            .clickable(onClick = onClick)
     )
 }
 

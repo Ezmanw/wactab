@@ -28,7 +28,17 @@ class PenSurfaceView(context: Context) : View(context) {
     var activeRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f)
     var onPenEvent: ((PenEvent) -> Unit)? = null
 
-    private val backgroundPaint = Paint().apply { color = Color.rgb(0x1c, 0x1c, 0x1e) }
+    /** When true, any non-stylus touch (finger, palm) is swallowed instead of passed through. */
+    var penOnlyMode: Boolean = false
+
+    var canvasColor: Int = Color.rgb(0x1c, 0x1c, 0x1e)
+        set(value) {
+            field = value
+            backgroundPaint.color = value
+            invalidate()
+        }
+
+    private val backgroundPaint = Paint().apply { color = canvasColor }
     private val dotPaint = Paint().apply {
         color = Color.rgb(0x3a, 0x3a, 0x3d)
         isAntiAlias = true
@@ -98,7 +108,9 @@ class PenSurfaceView(context: Context) : View(context) {
         if (event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS &&
             event.getToolType(0) != MotionEvent.TOOL_TYPE_ERASER
         ) {
-            return false
+            // Pen-only mode swallows finger/palm touches instead of letting them through,
+            // so a resting palm can't trigger anything (drawing already ignores them either way).
+            return penOnlyMode
         }
         val kind = when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> EventKind.DOWN

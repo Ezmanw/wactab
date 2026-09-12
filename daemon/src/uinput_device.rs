@@ -11,6 +11,13 @@ pub const AXIS_MAX: i32 = 32767;
 
 pub struct PenDevice {
     dev: VirtualDevice,
+    /// Separate pure-keyboard device for Undo/Redo shortcuts. libinput classifies a
+    /// device primarily by its capabilities, and a device that also exposes
+    /// BTN_TOOL_PEN gets treated strictly as a tablet tool — arbitrary KEY_* codes
+    /// riding along on that same device don't reliably reach X11/Wayland clients even
+    /// though they're visible at the raw kernel evdev level. A dedicated keyboard-only
+    /// device sidesteps that entirely.
+    keyboard: VirtualDevice,
     down: bool,
     /// Tracks whether BTN_TOOL_PEN/RUBBER has been raised. In real tablets this goes high
     /// as soon as the pen enters proximity (hover), independent of BTN_TOUCH — apps rely
@@ -42,7 +49,6 @@ impl PenDevice {
             keys.insert(KeyCode::BTN_LEFT);
             keys.insert(KeyCode::BTN_RIGHT);
         }
-
         let dev = VirtualDeviceBuilder::new()?
             .name("Wactab Virtual Pen")
             .input_id(InputId::new(evdev::BusType::BUS_VIRTUAL, 0x1209, 0x0001, 1))
@@ -63,15 +69,52 @@ impl PenDevice {
             ))?
             .build()?;
 
+        // udev's "is this a real keyboard" heuristic (which gates whether libinput grants
+        // LIBINPUT_DEVICE_CAP_KEYBOARD at all) requires a broad, qwerty-shaped key range —
+        // a handful of keys only earns the weaker ID_INPUT_KEY tag, which several
+        // compositors won't treat as a keyboard focus target. Register the same low
+        // key-code range (1..255, below BTN_MISC/0x100) a real AT keyboard reports, same
+        // trick tools like ydotool use, so this reliably reads as a real keyboard.
+        let mut keyboard_keys = AttributeSet::<KeyCode>::new();
+        for code in 1u16..255 {
+            keyboard_keys.insert(KeyCode(code));
+        }
+        let keyboard = VirtualDeviceBuilder::new()?
+            .name("Wactab Virtual Keyboard")
+            .input_id(InputId::new(evdev::BusType::BUS_VIRTUAL, 0x1209, 0x0002, 1))
+            .with_keys(&keyboard_keys)?
+            .build()?;
+
         Ok(Self {
             dev,
+            keyboard,
             down: false,
             in_proximity: false,
             tablet_mode,
         })
     }
 
+    fn send_shortcut(&mut self, key: KeyCode) -> Result<()> {
+        self.keyboard.emit(&[
+            KeyEvent::new(KeyCode::KEY_LEFTCTRL, 1).into(),
+            KeyEvent::new(key, 1).into(),
+            SynchronizationEvent::new(SynchronizationCode::SYN_REPORT, 0).into(),
+        ])?;
+        self.keyboard.emit(&[
+            KeyEvent::new(key, 0).into(),
+            KeyEvent::new(KeyCode::KEY_LEFTCTRL, 0).into(),
+            SynchronizationEvent::new(SynchronizationCode::SYN_REPORT, 0).into(),
+        ])?;
+        Ok(())
+    }
+
     pub fn apply(&mut self, ev: &PenEvent) -> Result<()> {
+        match ev.kind {
+            EventKind::Undo => return self.send_shortcut(KeyCode::KEY_Z),
+            EventKind::Redo => return self.send_shortcut(KeyCode::KEY_Y),
+            EventKind::Down | EventKind::Move | EventKind::Up | EventKind::Hover => {}
+        }
+
         let x = (ev.x * AXIS_MAX as f32) as i32;
         let y = (ev.y * AXIS_MAX as f32) as i32;
         let pressure = (ev.pressure * AXIS_MAX as f32) as i32;
@@ -115,6 +158,7 @@ impl PenDevice {
                         self.down = false;
                     }
                 }
+                EventKind::Undo | EventKind::Redo => unreachable!("handled above"),
             }
             events.push(KeyEvent::new(KeyCode::BTN_STYLUS, ev.barrel_button as i32).into());
         } else {
@@ -132,6 +176,7 @@ impl PenDevice {
                         self.down = false;
                     }
                 }
+                EventKind::Undo | EventKind::Redo => unreachable!("handled above"),
             }
             events.push(KeyEvent::new(KeyCode::BTN_RIGHT, ev.barrel_button as i32).into());
         }
