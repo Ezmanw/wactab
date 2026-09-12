@@ -1,0 +1,11 @@
+# Rust
+/daemon/target/
+
+# Android / Gradle
+/app/local.properties
+/app/.gradle/
+/app/build/
+/app/app/build/
+*.iml
+.idea/
+.DS_Store
