@@ -12,23 +12,32 @@ pub const AXIS_MAX: i32 = 32767;
 pub struct PenDevice {
     dev: VirtualDevice,
     down: bool,
+    tablet_mode: bool,
 }
 
 impl PenDevice {
-    pub fn new() -> Result<Self> {
+    pub fn new(tablet_mode: bool) -> Result<Self> {
         let abs_xy = AbsInfo::new(0, 0, AXIS_MAX, 0, 0, 100);
         let abs_pressure = AbsInfo::new(0, 0, AXIS_MAX, 0, 0, 0);
         let abs_tilt = AbsInfo::new(0, -90, 90, 0, 0, 0);
 
         // Deliberately presented as a plain absolute pointer (BTN_LEFT/RIGHT + ABS_X/Y),
-        // not a tablet (BTN_TOOL_PEN/BTN_STYLUS). Tablet-tagged devices go through the
-        // Wayland tablet-v2 protocol, which immature compositors (e.g. cosmic-comp as of
-        // 2026) don't fully forward to apps. A generic absolute pointer goes through the
-        // universally-supported core wl_pointer protocol instead. Trade-off: no dedicated
-        // pressure/tilt reporting to the OS today; revisit once tablet-v2 support matures.
+        // not a tablet (BTN_TOOL_PEN/BTN_STYLUS), by default. Tablet-tagged devices go
+        // through the Wayland tablet-v2 protocol, which immature compositors (e.g.
+        // cosmic-comp as of 2026) don't fully forward to apps. A generic absolute pointer
+        // goes through the universally-supported core wl_pointer protocol instead.
+        // Trade-off: no dedicated pressure/tilt reporting to the OS in pointer mode.
+        // --tablet-mode (see main.rs) switches back for testing tablet-protocol support.
         let mut keys = AttributeSet::<KeyCode>::new();
-        keys.insert(KeyCode::BTN_LEFT);
-        keys.insert(KeyCode::BTN_RIGHT);
+        if tablet_mode {
+            keys.insert(KeyCode::BTN_TOOL_PEN);
+            keys.insert(KeyCode::BTN_TOOL_RUBBER);
+            keys.insert(KeyCode::BTN_TOUCH);
+            keys.insert(KeyCode::BTN_STYLUS);
+        } else {
+            keys.insert(KeyCode::BTN_LEFT);
+            keys.insert(KeyCode::BTN_RIGHT);
+        }
 
         let dev = VirtualDeviceBuilder::new()?
             .name("Wactab Virtual Pen")
@@ -50,7 +59,11 @@ impl PenDevice {
             ))?
             .build()?;
 
-        Ok(Self { dev, down: false })
+        Ok(Self {
+            dev,
+            down: false,
+            tablet_mode,
+        })
     }
 
     pub fn apply(&mut self, ev: &PenEvent) -> Result<()> {
@@ -68,23 +81,49 @@ impl PenDevice {
             AbsoluteAxisEvent::new(AbsoluteAxisCode::ABS_TILT_Y, tilt_y).into(),
         ];
 
-        match ev.kind {
-            EventKind::Down => {
-                if !self.down {
-                    events.push(KeyEvent::new(KeyCode::BTN_LEFT, 1).into());
-                    self.down = true;
+        if self.tablet_mode {
+            let tool_key = if ev.eraser {
+                KeyCode::BTN_TOOL_RUBBER
+            } else {
+                KeyCode::BTN_TOOL_PEN
+            };
+            match ev.kind {
+                EventKind::Down => {
+                    if !self.down {
+                        events.push(KeyEvent::new(tool_key, 1).into());
+                        events.push(KeyEvent::new(KeyCode::BTN_TOUCH, 1).into());
+                        self.down = true;
+                    }
+                }
+                EventKind::Move | EventKind::Hover => {}
+                EventKind::Up => {
+                    if self.down {
+                        events.push(KeyEvent::new(KeyCode::BTN_TOUCH, 0).into());
+                        events.push(KeyEvent::new(tool_key, 0).into());
+                        self.down = false;
+                    }
                 }
             }
-            EventKind::Move | EventKind::Hover => {}
-            EventKind::Up => {
-                if self.down {
-                    events.push(KeyEvent::new(KeyCode::BTN_LEFT, 0).into());
-                    self.down = false;
+            events.push(KeyEvent::new(KeyCode::BTN_STYLUS, ev.barrel_button as i32).into());
+        } else {
+            match ev.kind {
+                EventKind::Down => {
+                    if !self.down {
+                        events.push(KeyEvent::new(KeyCode::BTN_LEFT, 1).into());
+                        self.down = true;
+                    }
+                }
+                EventKind::Move | EventKind::Hover => {}
+                EventKind::Up => {
+                    if self.down {
+                        events.push(KeyEvent::new(KeyCode::BTN_LEFT, 0).into());
+                        self.down = false;
+                    }
                 }
             }
+            events.push(KeyEvent::new(KeyCode::BTN_RIGHT, ev.barrel_button as i32).into());
         }
 
-        events.push(KeyEvent::new(KeyCode::BTN_RIGHT, ev.barrel_button as i32).into());
         events.push(SynchronizationEvent::new(SynchronizationCode::SYN_REPORT, 0).into());
 
         self.dev.emit(&events)?;

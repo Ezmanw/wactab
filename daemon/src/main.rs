@@ -20,6 +20,12 @@ struct Args {
     /// Skip running `adb forward` automatically (do it yourself beforehand).
     #[arg(long)]
     no_adb: bool,
+
+    /// Present the virtual device as a tablet (BTN_TOOL_PEN/BTN_STYLUS) with real
+    /// pressure/tilt instead of a plain pointer. Requires compositor zwp_tablet_v2
+    /// support to actually receive events in apps; see README Status section.
+    #[arg(long)]
+    tablet_mode: bool,
 }
 
 fn setup_adb_forward(port: u16) -> Result<()> {
@@ -42,7 +48,7 @@ async fn main() -> Result<()> {
         println!("adb forward tcp:{0} tcp:{0} set up", args.port);
     }
 
-    let mut pen = PenDevice::new().context("failed to create uinput virtual device (are you in the `input` group / running as root?)")?;
+    let mut pen = PenDevice::new(args.tablet_mode).context("failed to create uinput virtual device (are you in the `input` group / running as root?)")?;
     println!("Virtual pen device created. Waiting for the Wactab Android app to connect...");
 
     loop {
