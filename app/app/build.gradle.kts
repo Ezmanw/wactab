@@ -11,8 +11,8 @@ android {
         applicationId = "com.wactab.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildFeatures {
@@ -34,6 +34,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Signed with the local debug keystore so the release APK is directly
+            // installable (adb install / sideload) without managing a separate signing
+            // key for what is a personal/hobby distribution, not a Play Store release.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
