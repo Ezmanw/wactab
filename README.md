@@ -58,13 +58,20 @@ Verified end-to-end on real hardware (Samsung Galaxy Tab S6 Lite + S Pen, Linux/
   and a native GTK4 app misinterpreting tablet axes as a zoom gesture. Plain-pointer mode
   goes through the much more mature, universally-supported core `wl_pointer` protocol
   instead, at the cost of pressure/tilt not being applied at the OS level yet.
-- **Pressure and tilt are already captured and transmitted** by the Android app (see
-  [`Protocol.kt`](app/app/src/main/kotlin/com/wactab/app/net/Protocol.kt)) — the daemon
-  just isn't applying them to the OS-level device in the current default mode. Switching
-  `daemon/src/uinput_device.rs` back to tablet-classified axes
-  (`BTN_TOOL_PEN`/`BTN_STYLUS`) restores full pressure/tilt reporting and was verified
-  working at the kernel `evdev` level; it's gated on the compositor's tablet-protocol
-  support rather than anything in this app. This likely already works out of the box on
-  GNOME or KDE (both have mature `zwp_tablet_v2` support).
+- **Pressure, tilt, and hover work with `--tablet-mode`** (`wactab-daemon --tablet-mode`),
+  verified end-to-end in GIMP under a KDE Plasma (X11) session: real pressure-sensitive
+  line width, tilt, and a hover cursor that appears before the pen touches down. This mode
+  presents the device as a real tablet (`BTN_TOOL_PEN`/`BTN_STYLUS`), which needs a
+  compositor with working `zwp_tablet_v2` support — X11 sessions (via plain `libinput` +
+  XInput2, no Wayland protocol involved) and mature Wayland compositors (GNOME, KDE) work;
+  COSMIC's `cosmic-comp` does not yet (tracked upstream:
+  [pop-os/cosmic-comp#2721](https://github.com/pop-os/cosmic-comp/issues/2721)).
+  Confining the tablet to one monitor under X11 (so the cursor doesn't wander onto other
+  displays) uses the same trick as `xsetwacom --map-to-output`:
+  ```bash
+  # id from `xinput list` (the "... Pen (0)" sub-device); geometry from `xrandr --query`
+  xinput set-prop <id> "Coordinate Transformation Matrix" \
+    <mon_w/screen_w> 0 <mon_x/screen_w>  0 <mon_h/screen_h> <mon_y/screen_h>  0 0 1
+  ```
 - USB transport only (via `adb forward`), single-client. Wireless (Wi-Fi / wireless-adb
   pairing) is a planned follow-up.

@@ -3,8 +3,14 @@ package com.wactab.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,16 +26,50 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.wactab.app.net.PenServer
 import com.wactab.app.ui.PenSurfaceView
+import kotlinx.coroutines.delay
+
+private val WactabColorScheme = darkColorScheme(
+    primary = Color(0xFF80CBC4),
+    onPrimary = Color(0xFF00201C),
+    primaryContainer = Color(0xFF0F3D38),
+    onPrimaryContainer = Color(0xFFA0F2E4),
+    secondary = Color(0xFFB0CCC7),
+    onSecondary = Color(0xFF162421),
+    background = Color(0xFF121212),
+    onBackground = Color(0xFFE3E3E3),
+    surface = Color(0xFF1C1C1E),
+    onSurface = Color(0xFFE3E3E3),
+    surfaceVariant = Color(0xFF2A2A2C),
+    onSurfaceVariant = Color(0xFFC4C7C6),
+    outline = Color(0xFF8A8F8D),
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setImmersive()
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = WactabColorScheme) {
                 WactabApp()
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) setImmersive()
+    }
+
+    private fun setImmersive() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
     }
 }
@@ -40,9 +80,10 @@ fun WactabApp() {
     var running by remember { mutableStateOf(false) }
     var connected by remember { mutableStateOf(false) }
     var calibrating by remember { mutableStateOf(false) }
+    var barVisible by remember { mutableStateOf(true) }
 
-    // left, top, right, bottom as fractions of the screen (0f..1f)
-    var rect by remember { mutableStateOf(floatArrayOf(0.05f, 0.05f, 0.95f, 0.95f)) }
+    // left, top, right, bottom as fractions of the screen (0f..1f) — full screen by default.
+    var rect by remember { mutableStateOf(floatArrayOf(0f, 0f, 1f, 1f)) }
 
     val server = remember(port) {
         PenServer(port) { isConnected -> connected = isConnected }
@@ -50,18 +91,19 @@ fun WactabApp() {
 
     var surfaceView by remember { mutableStateOf<PenSurfaceView?>(null) }
     LaunchedEffect(rect) { surfaceView?.activeRect = rect }
-    LaunchedEffect(running) {
+    LaunchedEffect(running, calibrating) {
         surfaceView?.onPenEvent = if (running && !calibrating) {
             { event -> server.send(event) }
         } else null
     }
-    LaunchedEffect(calibrating) {
-        surfaceView?.onPenEvent = if (running && !calibrating) {
-            { event -> server.send(event) }
-        } else null
+    LaunchedEffect(barVisible, calibrating) {
+        if (barVisible && !calibrating) {
+            delay(4000)
+            barVisible = false
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
                 PenSurfaceView(ctx).also {
@@ -76,29 +118,52 @@ fun WactabApp() {
             CalibrationOverlay(rect = rect, onRectChange = { rect = it })
         }
 
-        ControlBar(
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPad(),
-            port = port,
-            onPortChange = { port = it },
-            running = running,
-            connected = connected,
-            calibrating = calibrating,
-            onToggleCalibrate = { calibrating = !calibrating },
-            onToggleRunning = {
-                if (running) {
-                    server.stop()
-                    running = false
-                } else {
-                    server.start()
-                    running = true
-                }
-            },
-        )
+        if (!barVisible) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(28.dp)
+                    .clickable { barVisible = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = barVisible,
+            modifier = Modifier.align(Alignment.TopCenter),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+        ) {
+            ControlBar(
+                modifier = Modifier.padding(top = 12.dp),
+                port = port,
+                onPortChange = { port = it },
+                running = running,
+                connected = connected,
+                calibrating = calibrating,
+                onToggleCalibrate = { calibrating = !calibrating },
+                onToggleRunning = {
+                    if (running) {
+                        server.stop()
+                        running = false
+                    } else {
+                        server.start()
+                        running = true
+                    }
+                },
+            )
+        }
     }
 }
-
-@Composable
-private fun Modifier.statusBarsPad(): Modifier = this.padding(top = 16.dp)
 
 @Composable
 fun ControlBar(
@@ -113,12 +178,12 @@ fun ControlBar(
 ) {
     Surface(
         modifier = modifier.padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-        tonalElevation = 4.dp,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -130,6 +195,7 @@ fun ControlBar(
                     else -> "Waiting for PC (adb forward tcp:$port tcp:$port)…"
                 },
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.weight(1f))
             OutlinedTextField(

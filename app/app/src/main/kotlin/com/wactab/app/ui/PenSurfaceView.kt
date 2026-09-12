@@ -1,6 +1,9 @@
 package com.wactab.app.ui
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.view.MotionEvent
 import android.view.View
 import com.wactab.app.net.EventKind
@@ -15,11 +18,40 @@ import kotlin.math.sin
  * [activeRect] is (left, top, right, bottom) as fractions of the view, 0f..1f each,
  * letting the user restrict the usable drawing area (e.g. to match monitor aspect ratio
  * or avoid a bezel) without changing anything else.
+ *
+ * Draws a plain dot-grid texture as a static backdrop — this view never renders actual
+ * ink (drawing happens on the connected PC), the grid is purely so the surface reads as
+ * a tablet rather than a blank void.
  */
 class PenSurfaceView(context: Context) : View(context) {
 
     var activeRect: FloatArray = floatArrayOf(0f, 0f, 1f, 1f)
     var onPenEvent: ((PenEvent) -> Unit)? = null
+
+    private val backgroundPaint = Paint().apply { color = Color.rgb(0x1c, 0x1c, 0x1e) }
+    private val dotPaint = Paint().apply {
+        color = Color.rgb(0x3a, 0x3a, 0x3d)
+        isAntiAlias = true
+    }
+    private val dotSpacingDp = 32f
+    private val dotRadiusDp = 1.6f
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
+        val density = resources.displayMetrics.density
+        val spacing = dotSpacingDp * density
+        val radius = dotRadiusDp * density
+        var y = spacing / 2
+        while (y < height) {
+            var x = spacing / 2
+            while (x < width) {
+                canvas.drawCircle(x, y, radius, dotPaint)
+                x += spacing
+            }
+            y += spacing
+        }
+    }
 
     private fun normalize(rawX: Float, rawY: Float): Pair<Float, Float> {
         val (l, t, r, b) = activeRect

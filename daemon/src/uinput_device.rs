@@ -12,6 +12,10 @@ pub const AXIS_MAX: i32 = 32767;
 pub struct PenDevice {
     dev: VirtualDevice,
     down: bool,
+    /// Tracks whether BTN_TOOL_PEN/RUBBER has been raised. In real tablets this goes high
+    /// as soon as the pen enters proximity (hover), independent of BTN_TOUCH — apps rely
+    /// on it to show a cursor/highlight before the pen actually touches the surface.
+    in_proximity: bool,
     tablet_mode: bool,
 }
 
@@ -62,6 +66,7 @@ impl PenDevice {
         Ok(Self {
             dev,
             down: false,
+            in_proximity: false,
             tablet_mode,
         })
     }
@@ -87,10 +92,18 @@ impl PenDevice {
             } else {
                 KeyCode::BTN_TOOL_PEN
             };
+
+            // Raise "tool in proximity" as soon as any event arrives (including Hover),
+            // not just on Down — otherwise the OS doesn't know the pen exists until it
+            // touches the surface, so there's no cursor feedback while hovering.
+            if !self.in_proximity {
+                events.push(KeyEvent::new(tool_key, 1).into());
+                self.in_proximity = true;
+            }
+
             match ev.kind {
                 EventKind::Down => {
                     if !self.down {
-                        events.push(KeyEvent::new(tool_key, 1).into());
                         events.push(KeyEvent::new(KeyCode::BTN_TOUCH, 1).into());
                         self.down = true;
                     }
@@ -99,7 +112,6 @@ impl PenDevice {
                 EventKind::Up => {
                     if self.down {
                         events.push(KeyEvent::new(KeyCode::BTN_TOUCH, 0).into());
-                        events.push(KeyEvent::new(tool_key, 0).into());
                         self.down = false;
                     }
                 }
