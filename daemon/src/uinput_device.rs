@@ -25,13 +25,13 @@ impl PenDevice {
         let abs_pressure = AbsInfo::new(0, 0, AXIS_MAX, 0, 0, 0);
         let abs_tilt = AbsInfo::new(0, -90, 90, 0, 0, 0);
 
-        // Deliberately presented as a plain absolute pointer (BTN_LEFT/RIGHT + ABS_X/Y),
-        // not a tablet (BTN_TOOL_PEN/BTN_STYLUS), by default. Tablet-tagged devices go
-        // through the Wayland tablet-v2 protocol, which immature compositors (e.g.
-        // cosmic-comp as of 2026) don't fully forward to apps. A generic absolute pointer
-        // goes through the universally-supported core wl_pointer protocol instead.
-        // Trade-off: no dedicated pressure/tilt reporting to the OS in pointer mode.
-        // --tablet-mode (see main.rs) switches back for testing tablet-protocol support.
+        // Presented as a real tablet (BTN_TOOL_PEN/BTN_STYLUS) by default, giving real
+        // pressure/tilt/hover — this needs a compositor with working Wayland tablet-v2
+        // support (X11 sessions, GNOME, KDE all work; COSMIC's cosmic-comp as of 2026
+        // does not, see README). --pointer-mode (see main.rs) falls back to a plain
+        // absolute pointer (BTN_LEFT/RIGHT + ABS_X/Y) for those compositors instead,
+        // trading away pressure/tilt for reliable position/click via the much more
+        // mature core wl_pointer protocol.
         let mut keys = AttributeSet::<KeyCode>::new();
         if tablet_mode {
             keys.insert(KeyCode::BTN_TOOL_PEN);

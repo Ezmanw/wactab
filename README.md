@@ -33,12 +33,14 @@ cd ../daemon && cargo build --release
 ## Running
 
 1. Plug the tablet in over USB, open the Wactab app.
-2. On the PC: `./daemon/target/release/wactab-daemon` (defaults to port 7912; pass `--port` to change it — must match the app).
+2. On the PC: `./wactab.sh` (defaults to port 7912, real tablet mode with pressure/tilt;
+   pass `--port` to change the port, or `--pointer-mode` if you're on a compositor without
+   working tablet-v2 support — see Status below).
 3. In the app, tap **Start**. The daemon runs `adb forward` automatically and connects.
 4. Optionally tap **Calibrate area** and drag the corner handles to restrict which part
    of the tablet screen is active (e.g. to leave room for on-screen UI, or match your
    monitor's aspect ratio).
-5. Draw — cursor position and click/drag work in any app.
+5. Draw.
 
 ## Wire protocol
 
@@ -50,23 +52,20 @@ and [`app/app/src/main/kotlin/com/wactab/app/net/Protocol.kt`](app/app/src/main/
 
 Verified end-to-end on real hardware (Samsung Galaxy Tab S6 Lite + S Pen, Linux/COSMIC):
 
-- **Position, click, and drag work today.** The virtual device is intentionally presented
-  as a plain absolute pointer (`BTN_LEFT`/`BTN_RIGHT` + `ABS_X/Y`), not a tablet
-  (`BTN_TOOL_PEN`/`BTN_STYLUS`). Tablet-classified devices are routed through the Wayland
-  `zwp_tablet_v2` protocol, which immature compositors (COSMIC's `cosmic-comp`, as of
-  2026) advertise but don't yet forward correctly to apps — confirmed via `wayland-info`
-  and a native GTK4 app misinterpreting tablet axes as a zoom gesture. Plain-pointer mode
-  goes through the much more mature, universally-supported core `wl_pointer` protocol
-  instead, at the cost of pressure/tilt not being applied at the OS level yet.
-- **Pressure, tilt, and hover work with `--tablet-mode`** (`wactab-daemon --tablet-mode`),
-  verified end-to-end in GIMP under a KDE Plasma (X11) session: real pressure-sensitive
-  line width, tilt, and a hover cursor that appears before the pen touches down. This mode
-  presents the device as a real tablet (`BTN_TOOL_PEN`/`BTN_STYLUS`), which needs a
-  compositor with working `zwp_tablet_v2` support — X11 sessions (via plain `libinput` +
-  XInput2, no Wayland protocol involved) and mature Wayland compositors (GNOME, KDE) work;
-  COSMIC's `cosmic-comp` does not yet (tracked upstream:
-  [pop-os/cosmic-comp#2721](https://github.com/pop-os/cosmic-comp/issues/2721)).
-  Confining the tablet to one monitor under X11 (so the cursor doesn't wander onto other
+- **Pressure, tilt, and hover work by default**, verified end-to-end in GIMP under a KDE
+  Plasma (X11) session: real pressure-sensitive line width, tilt, and a hover cursor that
+  appears before the pen touches down. The daemon presents the device as a real tablet
+  (`BTN_TOOL_PEN`/`BTN_STYLUS`), which needs a compositor with working `zwp_tablet_v2`
+  support — X11 sessions (via plain `libinput` + XInput2, no Wayland protocol involved)
+  and mature Wayland compositors (GNOME, KDE) work; COSMIC's `cosmic-comp` does not yet
+  (tracked upstream: [pop-os/cosmic-comp#2721](https://github.com/pop-os/cosmic-comp/issues/2721)).
+- **`--pointer-mode` is the fallback** for compositors without working tablet-v2 support.
+  It presents the virtual device as a plain absolute pointer (`BTN_LEFT`/`BTN_RIGHT` +
+  `ABS_X/Y`) instead, going through the much more mature, universally-supported core
+  `wl_pointer` protocol — confirmed working on COSMIC, where tablet-classified devices
+  don't (confirmed via `wayland-info` and a native GTK4 app misinterpreting tablet axes
+  as a zoom gesture). Trade-off: no pressure/tilt/hover, just position and click/drag.
+- Confining the tablet to one monitor under X11 (so the cursor doesn't wander onto other
   displays) uses the same trick as `xsetwacom --map-to-output`:
   ```bash
   # id from `xinput list` (the "... Pen (0)" sub-device); geometry from `xrandr --query`

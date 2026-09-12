@@ -3,9 +3,11 @@
 # (needs cargo/rustc), then execs it, forwarding any arguments you pass here
 # straight through to wactab-daemon — e.g.:
 #
-#   ./wactab.sh                  # default: plain-pointer mode (works everywhere)
-#   ./wactab.sh --tablet-mode    # real pressure/tilt/hover (needs a compositor
-#                                # with working Wayland tablet-v2 support, or X11)
+#   ./wactab.sh                  # default: real pressure/tilt/hover (needs a
+#                                # compositor with working Wayland tablet-v2
+#                                # support, or X11 — see README)
+#   ./wactab.sh --pointer-mode   # fallback for compositors that don't (e.g.
+#                                # COSMIC's cosmic-comp as of 2026)
 #   ./wactab.sh --port 8000
 #
 # See README.md for what each mode means and how to confine the tablet to one
